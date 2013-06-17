@@ -270,7 +270,7 @@ int main(int argc, const char *argv[])
           b += 0xff000000 * 4; /* sign-extend */
 
         if ((op & 0xff000000) == 0xea000000)
-          if (b < i && i >= end)
+          if (((b - i) & 0x80000000) && i >= end)
             break;
 
         if (b <= image_size)
