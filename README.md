@@ -30,7 +30,7 @@ Example:
 
 	$ cat vmalloc_exec.dasm
 	Disassemble 0xc0143354 - 0xc0143374
-	c0143354: e5 9f 30 1c     LDR     R3, =0xc0bd8318 [$c0143378]
+	c0143354: e5 9f 30 1c     LDR     R3, =$c0bd8318 [$c0143378]
 	c0143358: e9 2d 40 07     STMPW   [SP], { R0-R2, LR }
 	c014335c: e3 e0 20 00     MVN     R2, #$0
 	c0143360: e5 93 30 00     LDR     R3, [R3]
