@@ -25,6 +25,8 @@
 
 #define CPU_DISASSEMBLE(x)	int x(char *buffer, UINT32 pc, const UINT8 *oprom)
 
+#define KSYM_NAME_LEN 128
+
 UINT8 *image_data;
 UINT32 image_base;
 UINT32 image_size;
@@ -74,7 +76,140 @@ void register_coderef(UINT32 from, UINT32 to)
 		*q = p;
 }
 
+typedef struct
+{
+  char name[KSYM_NAME_LEN + 16];
+	UINT32 addr;
+} symbol_t;
+
+symbol_t *symbols;
+size_t symbol_len;
+size_t symbol_size;
+
+static int search_symbol(UINT32 addr)
+{
+  int s = 0;
+  int e = symbol_len - 1;
+
+  while (e >= s)
+  {
+    int i = (s + e) / 2;
+    if (symbols[i].addr == addr)
+      return i;
+
+    if (symbols[i].addr > addr)
+      e = i - 1;
+    else
+      s = i + 1;
+  }
+
+  return s;
+}
+
+int have_symbol(UINT32 addr)
+{
+  int i;
+
+  i = search_symbol(addr);
+  return symbols[i].addr == addr;
+}
+
+const char *get_symbol_name(UINT32 addr)
+{
+  static char buf[16];
+  int i;
+
+  i = search_symbol(addr);
+  if (symbols[i].addr == addr)
+    return symbols[i].name;
+
+  sprintf(buf, "$%x", addr);
+  return buf;
+}
+
 #include "arm7dasm.c"
+
+static void register_symbol(const char *name, UINT32 addr)
+{
+  symbol_t target;
+  int i;
+
+  snprintf(target.name, sizeof (target.name) - 1, "$%x <%s>", addr, name);
+  target.name[sizeof (target.name) - 1] = '\0';
+  target.addr = addr;
+
+  if (symbols == NULL)
+  {
+    symbol_size = 1024;
+    symbols = malloc(sizeof (*symbols) * symbol_size);
+    if (symbols == NULL)
+      return;
+
+    symbol_len = 0;
+    //fprintf(stderr, "\r%d symbols", symbol_len);
+  }
+
+  i = search_symbol(addr);
+  if (symbols[i].addr == addr)
+    return;
+
+  if (symbol_len == symbol_size)
+  {
+    symbol_size += 1024;
+    symbols = realloc(symbols, sizeof (*symbols) * symbol_size);
+    if (symbols == NULL)
+      return;
+
+    //fprintf(stderr, "\r%d symbols", symbol_len);
+  }
+
+  memmove(&symbols[i], &symbols[i + 1], sizeof (*symbols) * (symbol_len - i));
+  symbols[i] = target;
+  symbol_len++;
+}
+
+static void read_kallsyms(const char *filename)
+{
+  FILE *fp = fopen(filename, "rt");
+
+  while (!feof(fp))
+  {
+    char buf[1024];
+    UINT32 addr;
+    char name[KSYM_NAME_LEN];
+    char *s;
+    char *p;
+
+    if (fgets(buf, sizeof buf, fp) == NULL)
+      break;
+
+    s = strtok_r(buf, " \r\n", &p);
+    if (s == NULL)
+      break;
+
+    if (sscanf(s, "%x", &addr) != 1)
+      break;
+
+    s = strtok_r(NULL, " \r\n", &p);
+    if (s == NULL)
+      break;
+
+    strncpy(name, s, KSYM_NAME_LEN - 1);
+    name[KSYM_NAME_LEN - 1] = '\0';
+
+    if ((s = strtok_r(NULL, " \r\n", &p)) != NULL)
+    {
+      strncpy(name, s, KSYM_NAME_LEN - 1);
+      name[KSYM_NAME_LEN - 1] = '\0';
+    }
+
+    register_symbol(name, addr);
+  }
+
+  fclose(fp);
+
+  fprintf(stderr, "%d symbols are loaded.\n", symbol_len);
+}
 
 enum
 {
@@ -93,7 +228,7 @@ int main(int argc, const char *argv[])
 	UINT32 frameregs;
 	UINT32 i;
 
-	if (argc != 4)
+	if (argc != 4 && argc != 5)
 		return 1;
 
 	if (sscanf(argv[2], "%x", &image_base) != 1)
@@ -145,6 +280,9 @@ int main(int argc, const char *argv[])
 	}
 
 	fclose(fp);
+
+  if (argv[4])
+    read_kallsyms(argv[4]);
 
   end = 0;
 
@@ -274,8 +412,9 @@ int main(int argc, const char *argv[])
             break;
 
         if (b <= image_size)
-          if (end < b)
-            end = b;
+          if (!have_symbol(b))
+            if (end < b)
+              end = b;
       }
 
 			i += 4;

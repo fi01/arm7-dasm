@@ -221,7 +221,7 @@ static char *WriteBranchAddress( char *pBuf, UINT32 pc, UINT32 opcode )
 	}
 	register_coderef(pc, pc + 8 + 4 * opcode);
 	pc += 8+4*opcode;
-	sprintf( pBuf, "$%x", pc );
+	strcpy(pBuf, get_symbol_name(pc));
 	return pBuf;
 } /* WriteBranchAddress */
 
@@ -588,7 +588,7 @@ if (((opcode>>16) & 0xf) == 15 && (opcode & 0x02000000) == 0)
 			{
 				UINT32 data = rnv - image_base;
 				data = (image_data[data + 3] << 24) | (image_data[data + 2] << 16) | (image_data[data + 1] << 8) | image_data[data];
-				pBuf += sprintf( pBuf, "=$%x ", data);
+				pBuf += sprintf( pBuf, "=%s ", get_symbol_name(data));
 			}
 
 			pBuf += sprintf( pBuf, "[$%08x]", rnv);
