@@ -9,13 +9,17 @@ Compile:
 
 Disassemble:
 
+	$ ./arm7-dasm [kernel image filename] [image base address] [disassemble address or symbol name] [symbol table file]
+
+    Or
+
 	$ ./arm7-dasm [kernel image filename] [image base address] [disassemble address]
 
 Example:
 
-	$ kallsymsprint kernel.Image | grep vmalloc_exec
+	$ kallsymsprint kernel.Image > kallsyms.txt
 	[+]mmap
-	  mem=f6a4d000 length=00bcff4c offset=c95bb000
+	  mem=f6a0b000 length=00bcff4c offset=c95fd000
 	[+]kallsyms_addresses=c076dc90
 	  count=0000d90e
 	[+]kallsyms_num_syms=0000d90e
@@ -23,10 +27,10 @@ Example:
 	[+]kallsyms_markers=c08415b0
 	[+]kallsyms_token_table=c0841920
 	[+]kallsyms_token_index=c0841cd0
-	c0143354 vmalloc_exec
 	[+]kallsyms_lookup_name
 
-	$ ./arm7-dasm kernel.Image c0008000 c0143354 > vmalloc_exec.dasm
+	$ ./arm7-dasm kernel.Image c0008000 vmalloc_exec kallsyms.txt > vmalloc_exec.dasm
+	55417 symbols are loaded.
 
 	$ cat vmalloc_exec.dasm
 	Disassemble 0xc0143354 - 0xc0143374
@@ -37,5 +41,5 @@ Example:
 	c0143364: e3 a0 10 01     MOV     R1, #$1
 	c0143368: e8 8d 40 04     STMU    [SP], { R2, LR }
 	c014336c: e3 a0 20 d2     MOV     R2, #$d2
-	c0143370: eb ff ff 85     BL      $c014318c
+	c0143370: eb ff ff 85     BL      $c014318c <__vmalloc_node>
 	c0143374: e8 bd 80 0e     LDMUW   [SP], { R1-R3, PC }

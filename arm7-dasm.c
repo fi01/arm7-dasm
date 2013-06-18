@@ -78,7 +78,7 @@ void register_coderef(UINT32 from, UINT32 to)
 
 typedef struct
 {
-  char name[KSYM_NAME_LEN + 16];
+  char name[KSYM_NAME_LEN];
 	UINT32 addr;
 } symbol_t;
 
@@ -110,21 +110,46 @@ int have_symbol(UINT32 addr)
 {
   int i;
 
+  if (symbols == NULL)
+    return 9;
+
   i = search_symbol(addr);
   return symbols[i].addr == addr;
 }
 
 const char *get_symbol_name(UINT32 addr)
 {
-  static char buf[16];
-  int i;
+  static char buf[KSYM_NAME_LEN + 16];
 
-  i = search_symbol(addr);
-  if (symbols[i].addr == addr)
-    return symbols[i].name;
+  if (symbols)
+  {
+    int i;
+
+    i = search_symbol(addr);
+    if (symbols[i].addr == addr)
+    {
+      snprintf(buf, sizeof (buf) - 1, "$%x <%s>", addr, symbols[i].name);
+      buf[sizeof (buf) - 1] = '\0';
+      return buf;
+    }
+  }
 
   sprintf(buf, "$%x", addr);
   return buf;
+}
+
+const UINT32 get_symbol_address(const char *name)
+{
+  int i;
+
+  if (symbols == NULL)
+    return 0;
+
+  for (i = 0; i < symbol_len; i++)
+    if (strcmp(symbols[i].name, name) == 0)
+      return symbols[i].addr;
+
+  return 0;
 }
 
 #include "arm7dasm.c"
@@ -134,7 +159,7 @@ static void register_symbol(const char *name, UINT32 addr)
   symbol_t target;
   int i;
 
-  snprintf(target.name, sizeof (target.name) - 1, "$%x <%s>", addr, name);
+  strncpy(target.name, name, sizeof (target.name) - 1);
   target.name[sizeof (target.name) - 1] = '\0';
   target.addr = addr;
 
@@ -234,9 +259,6 @@ int main(int argc, const char *argv[])
 	if (sscanf(argv[2], "%x", &image_base) != 1)
 		return 1;
 
-	if (sscanf(argv[3], "%x", &start) != 1)
-		return 1;
-
 	fp = fopen(argv[1], "rb");
 	if (!fp)
 		return 1;
@@ -251,9 +273,6 @@ int main(int argc, const char *argv[])
 	}
 
 	fseek(fp, 0, SEEK_SET);
-
-	if (start < image_base || start >= image_base + image_size)
-		goto error_exit;
 
 	image_data = malloc(image_size);
 	if (!image_data)
@@ -283,6 +302,14 @@ int main(int argc, const char *argv[])
 
   if (argv[4])
     read_kallsyms(argv[4]);
+
+  start = get_symbol_address(argv[3]);
+	if (start == 0)
+    if (sscanf(argv[3], "%x", &start) != 1)
+      return 1;
+
+	if (start < image_base || start >= image_base + image_size)
+		goto error_exit;
 
   end = 0;
 
