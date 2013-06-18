@@ -409,6 +409,12 @@ int main(int argc, const char *argv[])
 						printf("%08x: %*s;      %08x\n", pc, 44, "", ref->from);
 				}
 
+        if (have_symbol(pc))
+        {
+            j = search_symbol(pc);
+            printf("%08x: %12s<%s>\n", pc, "", symbols[j].name);
+        }
+
 				printf("%08x: ", pc);
 				
 				for (j = 0; j < 4; j++)
