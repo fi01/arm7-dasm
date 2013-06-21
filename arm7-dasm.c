@@ -76,7 +76,7 @@ void register_coderef(UINT32 from, UINT32 to)
 
 typedef struct
 {
-  char name[KSYM_NAME_LEN];
+	char name[KSYM_NAME_LEN];
 	UINT32 addr;
 } symbol_t;
 
@@ -86,68 +86,68 @@ size_t symbol_size;
 
 static int search_symbol(UINT32 addr)
 {
-  int s = 0;
-  int e = symbol_len - 1;
+	int s = 0;
+	int e = symbol_len - 1;
 
-  while (e >= s)
-  {
-    int i = (s + e) / 2;
-    if (symbols[i].addr == addr)
-      return i;
+	while (e >= s)
+	{
+		int i = (s + e) / 2;
+		if (symbols[i].addr == addr)
+			return i;
 
-    if (symbols[i].addr > addr)
-      e = i - 1;
-    else
-      s = i + 1;
-  }
+		if (symbols[i].addr > addr)
+			e = i - 1;
+		else
+			s = i + 1;
+	}
 
-  return s;
+	return s;
 }
 
 int have_symbol(UINT32 addr)
 {
-  int i;
+	int i;
 
-  if (symbols == NULL)
+	if (symbols == NULL)
 		return 0;
 
-  i = search_symbol(addr);
-  return symbols[i].addr == addr;
+	i = search_symbol(addr);
+	return symbols[i].addr == addr;
 }
 
 const char *get_symbol_name(UINT32 addr)
 {
-  static char buf[KSYM_NAME_LEN + 16];
+	static char buf[KSYM_NAME_LEN + 16];
 
-  if (symbols)
-  {
-    int i;
+	if (symbols)
+	{
+		int i;
 
-    i = search_symbol(addr);
-    if (symbols[i].addr == addr)
-    {
-      snprintf(buf, sizeof (buf) - 1, "$%x <%s>", addr, symbols[i].name);
-      buf[sizeof (buf) - 1] = '\0';
-      return buf;
-    }
-  }
+		i = search_symbol(addr);
+		if (symbols[i].addr == addr)
+		{
+			snprintf(buf, sizeof (buf) - 1, "$%x <%s>", addr, symbols[i].name);
+			buf[sizeof (buf) - 1] = '\0';
+			return buf;
+		}
+	}
 
-  sprintf(buf, "$%x", addr);
-  return buf;
+	sprintf(buf, "$%x", addr);
+	return buf;
 }
 
 const UINT32 get_symbol_address(const char *name)
 {
-  int i;
+	int i;
 
-  if (symbols == NULL)
-    return 0;
+	if (symbols == NULL)
+		return 0;
 
-  for (i = 0; i < symbol_len; i++)
-    if (strcmp(symbols[i].name, name) == 0)
-      return symbols[i].addr;
+	for (i = 0; i < symbol_len; i++)
+		if (strcmp(symbols[i].name, name) == 0)
+			return symbols[i].addr;
 
-  return 0;
+	return 0;
 }
 
 UINT32 rnv_requested;
@@ -169,81 +169,81 @@ void check_rnv(UINT32 addr)
 
 static void register_symbol(const char *name, UINT32 addr)
 {
-  symbol_t target;
-  int i;
+	symbol_t target;
+	int i;
 
-  strncpy(target.name, name, sizeof (target.name) - 1);
-  target.name[sizeof (target.name) - 1] = '\0';
-  target.addr = addr;
+	strncpy(target.name, name, sizeof (target.name) - 1);
+	target.name[sizeof (target.name) - 1] = '\0';
+	target.addr = addr;
 
-  if (symbols == NULL)
-  {
-    symbol_size = 1024;
-    symbols = malloc(sizeof (*symbols) * symbol_size);
-    if (symbols == NULL)
-      return;
+	if (symbols == NULL)
+	{
+		symbol_size = 1024;
+		symbols = malloc(sizeof (*symbols) * symbol_size);
+		if (symbols == NULL)
+			return;
 
-    symbol_len = 0;
-  }
+		symbol_len = 0;
+	}
 
-  i = search_symbol(addr);
-  if (symbols[i].addr == addr)
-    return;
+	i = search_symbol(addr);
+	if (symbols[i].addr == addr)
+		return;
 
-  if (symbol_len == symbol_size)
-  {
-    symbol_size += 1024;
-    symbols = realloc(symbols, sizeof (*symbols) * symbol_size);
-    if (symbols == NULL)
-      return;
-  }
+	if (symbol_len == symbol_size)
+	{
+		symbol_size += 1024;
+		symbols = realloc(symbols, sizeof (*symbols) * symbol_size);
+		if (symbols == NULL)
+			return;
+	}
 
-  memmove(&symbols[i], &symbols[i + 1], sizeof (*symbols) * (symbol_len - i));
-  symbols[i] = target;
-  symbol_len++;
+	memmove(&symbols[i], &symbols[i + 1], sizeof (*symbols) * (symbol_len - i));
+	symbols[i] = target;
+	symbol_len++;
 }
 
 static void read_kallsyms(const char *filename)
 {
-  FILE *fp = fopen(filename, "rt");
+	FILE *fp = fopen(filename, "rt");
 
-  while (!feof(fp))
-  {
-    char buf[1024];
-    UINT32 addr;
-    char name[KSYM_NAME_LEN];
-    char *s;
-    char *p;
+	while (!feof(fp))
+	{
+		char buf[1024];
+		UINT32 addr;
+		char name[KSYM_NAME_LEN];
+		char *s;
+		char *p;
 
-    if (fgets(buf, sizeof buf, fp) == NULL)
-      break;
+		if (fgets(buf, sizeof buf, fp) == NULL)
+			break;
 
-    s = strtok_r(buf, " \r\n", &p);
-    if (s == NULL)
-      break;
+		s = strtok_r(buf, " \r\n", &p);
+		if (s == NULL)
+			break;
 
-    if (sscanf(s, "%x", &addr) != 1)
-      break;
+		if (sscanf(s, "%x", &addr) != 1)
+			break;
 
-    s = strtok_r(NULL, " \r\n", &p);
-    if (s == NULL)
-      break;
+		s = strtok_r(NULL, " \r\n", &p);
+		if (s == NULL)
+			break;
 
-    strncpy(name, s, KSYM_NAME_LEN - 1);
-    name[KSYM_NAME_LEN - 1] = '\0';
+		strncpy(name, s, KSYM_NAME_LEN - 1);
+		name[KSYM_NAME_LEN - 1] = '\0';
 
-    if ((s = strtok_r(NULL, " \r\n", &p)) != NULL)
-    {
-      strncpy(name, s, KSYM_NAME_LEN - 1);
-      name[KSYM_NAME_LEN - 1] = '\0';
-    }
+		if ((s = strtok_r(NULL, " \r\n", &p)) != NULL)
+		{
+			strncpy(name, s, KSYM_NAME_LEN - 1);
+			name[KSYM_NAME_LEN - 1] = '\0';
+		}
 
-    register_symbol(name, addr);
-  }
+		register_symbol(name, addr);
+	}
 
-  fclose(fp);
+	fclose(fp);
 
-  fprintf(stderr, "%d symbols are loaded.\n", symbol_len);
+	fprintf(stderr, "%d symbols are loaded.\n", symbol_len);
 }
 
 enum
@@ -312,19 +312,19 @@ int main(int argc, const char *argv[])
 
 	fclose(fp);
 
-  if (argv[4])
-    read_kallsyms(argv[4]);
+	if (argv[4])
+		read_kallsyms(argv[4]);
 
-  start = get_symbol_address(argv[3]);
+	start = get_symbol_address(argv[3]);
 	if (start == 0)
-    if (sscanf(argv[3], "%x", &start) != 1)
-      return 1;
+		if (sscanf(argv[3], "%x", &start) != 1)
+			return 1;
 
 	if (start < image_base || start >= image_base + image_size)
 		return 1;
 
 	rnv_requested = 0;
-  end = 0;
+	end = 0;
 
 	status = STAT_START;
 
@@ -333,8 +333,8 @@ int main(int argc, const char *argv[])
 		frameregs = 0;
 		i = 0;
 
-    if (dasm_process_pass == 1)
-      printf("Disassemble 0x%08x - 0x%08x\n", start, start + end);
+		if (dasm_process_pass == 1)
+			printf("Disassemble 0x%08x - 0x%08x\n", start, start + end);
 
 		while (1)
 		{
@@ -364,27 +364,27 @@ int main(int argc, const char *argv[])
 				if (end < i)
 					end = i;
 
-			switch (status)
-			{
-			case STAT_START:
-        // BX LR
-				if (op == 0xe12fff1e)
-        {
-						status = STAT_END_FUNCTION;
-          break;
-        }
-
-        // STMPW [SP], { ..., LR }
-					if ((op & 0xfffff000) == 0xe92d4000)
+				switch (status)
 				{
-					status = STAT_HAS_STACKFRAME;
-          // R4-R12
-					frameregs = op & 0x00000ff0;
+				case STAT_START:
+					// BX LR
+					if (op == 0xe12fff1e)
+					{
+						status = STAT_END_FUNCTION;
+						break;
+					}
+
+					// STMPW [SP], { ..., LR }
+					if ((op & 0xfffff000) == 0xe92d4000)
+					{
+						status = STAT_HAS_STACKFRAME;
+						// R4-R12
+						frameregs = op & 0x00000ff0;
 
 #ifdef DEBUG
-            fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
+						fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
 #endif /* DEBUG */
-				}
+					}
 
 					if (i >= 32)
 					{
@@ -394,12 +394,12 @@ int main(int argc, const char *argv[])
 						break;
 					}
 
-				break;
+					break;
 
-			case STAT_HAS_STACKFRAME:
-        // LDMUW [SP], { R4-R6, PC }
+				case STAT_HAS_STACKFRAME:
+					// LDMUW [SP], { R4-R6, PC }
 					if ((op & 0xfffffff0) == (0xe8bd8000 | frameregs))
-        {
+					{
 						if (end <= i)
 						{
 							status = STAT_END_FUNCTION;
@@ -413,7 +413,7 @@ int main(int argc, const char *argv[])
 						}
 
 						break;
-          }
+					}
 
 					// LDMUW [SP], { R4-R6, LR }
 					if ((op & 0xfffffff0) == (0xe8bd4000 | frameregs))
@@ -423,15 +423,15 @@ int main(int argc, const char *argv[])
 							status = STAT_END_STACKFRAME;
 #ifdef DEBUG
 							fprintf(stderr, "found: LDMUW (LR): pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
-          }
+						}
 						else
 						{
 							fprintf(stderr, "skip: LDMUW (LR): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, frameregs);
 #endif /* DEBUG */
-        }
+						}
 
-				break;
-			}
+						break;
+					}
 
 					break;
 				}
@@ -445,14 +445,14 @@ int main(int argc, const char *argv[])
 					printf("%08x: %*s; from %08x\n", pc, 44, "", ref->from);
 
 					for (ref = ref->next; ref; ref = ref->next)
-						printf("%08x: %*s;      %08x\n", pc, 44, "", ref->from);
+						printf("%08x: %*s;			%08x\n", pc, 44, "", ref->from);
 				}
 
-        if (have_symbol(pc))
-        {
-            j = search_symbol(pc);
-            printf("%08x: %12s<%s>\n", pc, "", symbols[j].name);
-        }
+				if (have_symbol(pc))
+				{
+						j = search_symbol(pc);
+						printf("%08x: %12s<%s>\n", pc, "", symbols[j].name);
+				}
 
 				printf("%08x: ", pc);
 				
@@ -464,10 +464,10 @@ int main(int argc, const char *argv[])
 
 			if (dasm_process_pass)
 			{
-				printf("    %s\n", buf);
+				printf("		%s\n", buf);
 
-        if (i >= end)
-          break;
+				if (i >= end)
+					break;
 
 				i += 4;
 				continue;
@@ -477,26 +477,26 @@ int main(int argc, const char *argv[])
 			{
 				i += 4;
 				continue;
-      }
+			}
 
 			if (status == STAT_END_FUNCTION)
 				if (i >= end)
 					break;
 
-      // Bxx $xxxxxxxx
-      if ((op & 0x0f000000) == 0x0a000000)
-      {
-        int b = i + (op & 0x00ffffff) * 4 + 8;
+			// Bxx $xxxxxxxx
+			if ((op & 0x0f000000) == 0x0a000000)
+			{
+				int b = i + (op & 0x00ffffff) * 4 + 8;
 
-        if (op & 0x00800000)
-          b += 0xff000000 * 4; /* sign-extend */
+				if (op & 0x00800000)
+					b += 0xff000000 * 4; /* sign-extend */
 
 				// B $xxxxxxxx
-        if ((op & 0xff000000) == 0xea000000)
-          if (((b - i) & 0x80000000) && i >= end)
-            break;
+				if ((op & 0xff000000) == 0xea000000)
+					if (((b - i) & 0x80000000) && i >= end)
+						break;
 
-        if (b <= image_size)
+				if (b <= image_size)
 					if (status == STAT_END_STACKFRAME)
 					{
 						if (end < b)
@@ -505,9 +505,9 @@ int main(int argc, const char *argv[])
 
 					else if (!have_symbol(start + b))
 					{
-            if (end < b)
-              end = b;
-      }
+						if (end < b)
+							end = b;
+					}
 #if 0
 					else if (status != STAT_HAS_STACKFRAME)
 					{
