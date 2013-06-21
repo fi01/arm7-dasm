@@ -51,8 +51,6 @@ void register_coderef(UINT32 from, UINT32 to)
 	if (dasm_process_pass)
 		return;
 
-	//printf("register coderef: %08x to %08x\n", from, to);
-
 	if (to < image_base)
 		return;
 
@@ -111,7 +109,7 @@ int have_symbol(UINT32 addr)
   int i;
 
   if (symbols == NULL)
-    return 9;
+		return 0;
 
   i = search_symbol(addr);
   return symbols[i].addr == addr;
@@ -152,6 +150,21 @@ const UINT32 get_symbol_address(const char *name)
   return 0;
 }
 
+UINT32 rnv_requested;
+
+void check_rnv(UINT32 addr)
+{
+	if (rnv_requested != 0 && rnv_requested < addr)
+		return;
+
+#ifdef DEBUG
+	if (!dasm_process_pass)
+		fprintf(stderr, "check_rnv(0x%08x)\n", addr);
+#endif /* DEBUG */
+
+	rnv_requested = addr;
+}
+
 #include "arm7dasm.c"
 
 static void register_symbol(const char *name, UINT32 addr)
@@ -171,7 +184,6 @@ static void register_symbol(const char *name, UINT32 addr)
       return;
 
     symbol_len = 0;
-    //fprintf(stderr, "\r%d symbols", symbol_len);
   }
 
   i = search_symbol(addr);
@@ -184,8 +196,6 @@ static void register_symbol(const char *name, UINT32 addr)
     symbols = realloc(symbols, sizeof (*symbols) * symbol_size);
     if (symbols == NULL)
       return;
-
-    //fprintf(stderr, "\r%d symbols", symbol_len);
   }
 
   memmove(&symbols[i], &symbols[i + 1], sizeof (*symbols) * (symbol_len - i));
@@ -240,7 +250,9 @@ enum
 {
 	STAT_START = 0,
 	STAT_HAS_STACKFRAME,
-	STAT_ENDFUNC,
+	STAT_END_STACKFRAME,
+	STAT_END_FUNCTION,
+	STAT_PROCESS_WHOLE,
 	STAT_UNKNOWN
 };
 
@@ -309,13 +321,15 @@ int main(int argc, const char *argv[])
       return 1;
 
 	if (start < image_base || start >= image_base + image_size)
-		goto error_exit;
+		return 1;
 
+	rnv_requested = 0;
   end = 0;
+
+	status = STAT_START;
 
 	for (dasm_process_pass = 0; dasm_process_pass < 2; dasm_process_pass++)
 	{
-		status = STAT_START;
 		frameregs = 0;
 		i = 0;
 
@@ -334,11 +348,6 @@ int main(int argc, const char *argv[])
 
 			pc = start + i;
 
-      if (end < i)
-      {
-        end = i;
-      }
-
 			off = pc - image_base;
 
 			if (off >= image_size)
@@ -350,52 +359,82 @@ int main(int argc, const char *argv[])
 				op += image_data[off + 3 - j];
 			}
 
+			if (!dasm_process_pass)
+			{
+				if (end < i)
+					end = i;
+
 			switch (status)
 			{
 			case STAT_START:
         // BX LR
 				if (op == 0xe12fff1e)
         {
-					status = STAT_ENDFUNC;
+						status = STAT_END_FUNCTION;
           break;
         }
 
         // STMPW [SP], { ..., LR }
-				if ((op & 0x0ffff000) == 0x092d4000)
+					if ((op & 0xfffff000) == 0xe92d4000)
 				{
 					status = STAT_HAS_STACKFRAME;
           // R4-R12
 					frameregs = op & 0x00000ff0;
 
 #ifdef DEBUG
-          if (!dasm_process_pass)
             fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
 #endif /* DEBUG */
 				}
+
+					if (i >= 32)
+					{
+						status = STAT_PROCESS_WHOLE;
+						fprintf(stderr, "Disassemble whole image.\n");
+
+						break;
+					}
 
 				break;
 
 			case STAT_HAS_STACKFRAME:
         // LDMUW [SP], { R4-R6, PC }
-				if ((op & 0x0ffffff0) == (0x08bd8000 | frameregs))
+					if ((op & 0xfffffff0) == (0xe8bd8000 | frameregs))
         {
-          if (end <= i) {
+						if (end <= i)
+						{
+							status = STAT_END_FUNCTION;
 #ifdef DEBUG
-            if (!dasm_process_pass)
-              fprintf(stderr, "found: LDMUW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
+							fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
+						}
+						else
+						{
+							fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, frameregs);
 #endif /* DEBUG */
+						}
 
-            status = STAT_ENDFUNC;
+						break;
           }
+
+					// LDMUW [SP], { R4-R6, LR }
+					if ((op & 0xfffffff0) == (0xe8bd4000 | frameregs))
+					{
+						if (end <= i)
+						{
+							status = STAT_END_STACKFRAME;
 #ifdef DEBUG
-          else {
-            if (!dasm_process_pass)
-              fprintf(stderr, "skip: LDMUW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
+							fprintf(stderr, "found: LDMUW (LR): pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
           }
+						else
+						{
+							fprintf(stderr, "skip: LDMUW (LR): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, frameregs);
 #endif /* DEBUG */
         }
 
 				break;
+			}
+
+					break;
+				}
 			}
 
 			if (dasm_process_pass)
@@ -424,13 +463,25 @@ int main(int argc, const char *argv[])
 			n = arm7arm(buf, pc, &image_data[off]);
 
 			if (dasm_process_pass)
+			{
 				printf("    %s\n", buf);
 
-			if (status == STAT_ENDFUNC)
-      {
         if (i >= end)
           break;
+
+				i += 4;
+				continue;
+			}
+
+			if (status == STAT_PROCESS_WHOLE)
+			{
+				i += 4;
+				continue;
       }
+
+			if (status == STAT_END_FUNCTION)
+				if (i >= end)
+					break;
 
       // Bxx $xxxxxxxx
       if ((op & 0x0f000000) == 0x0a000000)
@@ -440,19 +491,48 @@ int main(int argc, const char *argv[])
         if (op & 0x00800000)
           b += 0xff000000 * 4; /* sign-extend */
 
+				// B $xxxxxxxx
         if ((op & 0xff000000) == 0xea000000)
           if (((b - i) & 0x80000000) && i >= end)
             break;
 
         if (b <= image_size)
-          if (!have_symbol(b))
+					if (status == STAT_END_STACKFRAME)
+					{
+						if (end < b)
+							break;
+					}
+
+					else if (!have_symbol(start + b))
+					{
             if (end < b)
               end = b;
       }
+#if 0
+					else if (status != STAT_HAS_STACKFRAME)
+					{
+						fprintf(stderr, "end due to branch to symbol\n");
+						break;
+					}
+#endif
+			}
+
+			if (status != STAT_HAS_STACKFRAME && status != STAT_UNKNOWN)
+				if (rnv_requested != 0 && start + i >= rnv_requested)
+				{
+					fprintf(stderr, "end at 0x%08x by rnv requested\n", start + i);
+
+					end = i - 4;
+					break;
+				}
 
 			i += 4;
 		}
 	}
+
+#ifdef DEBUG
+	fprintf(stderr, "done at 0x%08x (end = 0x%08x, rnv requested: 0x%08x)\n", start + i, start + end, rnv_requested);
+#endif /* DEBUG */
 
 	return 0;
 
@@ -460,3 +540,7 @@ error_exit:
 	fclose(fp);
 	return 1;
 }
+
+/*
+vi:ts=2:nowrap:ai:noexpandtab:sw=2
+*/

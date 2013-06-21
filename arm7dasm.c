@@ -589,6 +589,7 @@ if (((opcode>>16) & 0xf) == 15 && (opcode & 0x02000000) == 0)
 				UINT32 data = rnv - image_base;
 				data = (image_data[data + 3] << 24) | (image_data[data + 2] << 16) | (image_data[data + 1] << 8) | image_data[data];
 				pBuf += sprintf( pBuf, "=%s ", get_symbol_name(data));
+				check_rnv(rnv);
 			}
 
 			pBuf += sprintf( pBuf, "[$%08x]", rnv);
