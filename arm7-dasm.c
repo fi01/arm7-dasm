@@ -167,14 +167,24 @@ void check_rnv(UINT32 addr)
 
 #include "arm7dasm.c"
 
-static void register_symbol(const char *name, UINT32 addr)
+static void insert_symbol(int pos, const char *name, UINT32 addr)
 {
-	symbol_t target;
 	int i;
 
-	strncpy(target.name, name, sizeof (target.name) - 1);
-	target.name[sizeof (target.name) - 1] = '\0';
-	target.addr = addr;
+	for (i = symbol_len - 1; i >= pos; i--)
+		symbols[i + 1] = symbols[i];
+
+	symbols[pos].addr = addr;
+
+	strncpy(symbols[pos].name, name, sizeof (symbols[0].name) - 1);
+	symbols[pos].name[sizeof (symbols[0].name) - 1] = '\0';
+
+	symbol_len++;
+}
+
+static void register_symbol(const char *name, UINT32 addr)
+{
+	int i;
 
 	if (symbols == NULL)
 	{
@@ -198,9 +208,7 @@ static void register_symbol(const char *name, UINT32 addr)
 			return;
 	}
 
-	memmove(&symbols[i], &symbols[i + 1], sizeof (*symbols) * (symbol_len - i));
-	symbols[i] = target;
-	symbol_len++;
+	insert_symbol(i, name, addr);
 }
 
 static void read_kallsyms(const char *filename)
