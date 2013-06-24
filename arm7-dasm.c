@@ -349,6 +349,7 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 *frameregs)
 #ifdef DEBUG
 			fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
 #endif /* DEBUG */
+			return;
 		}
 
 		if (pc - start >= 32)
@@ -365,27 +366,18 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 *frameregs)
 		if (((op & 0xfffffff0) == (0xe8bd8000 | *frameregs))
 		 || ((op & 0xfffffff0) == (0xe89da000 | *frameregs)))
 		{
-#if 0
 			if (end <= pc)
-#else
-			if (1)
-#endif
-			{
-				if (end > pc)
-					status = STAT_END_STACKFRAME;
-				else
-					status = STAT_END_FUNCTION;
-#ifdef DEBUG
-				fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
-			}
+				status = STAT_END_FUNCTION;
 			else
-			{
-				fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, end, *frameregs);
-#endif /* DEBUG */
-			}
+				status = STAT_END_STACKFRAME;
 
-			return;
+#ifdef DEBUG
+			fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
+#endif /* DEBUG */
+
 		}
+
+		return;
 	}
 }
 
