@@ -371,7 +371,10 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 *frameregs)
 			if (1)
 #endif
 			{
-				status = STAT_END_FUNCTION;
+				if (end > pc)
+					status = STAT_END_STACKFRAME;
+				else
+					status = STAT_END_FUNCTION;
 #ifdef DEBUG
 				fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
 			}
