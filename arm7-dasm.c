@@ -374,8 +374,10 @@ int main(int argc, const char *argv[])
 						break;
 					}
 
-					// STMPW [SP], { ..., LR }
-					if ((op & 0xfffff000) == 0xe92d4000)
+					// e92d4xxx: STMPW [SP], { ..., LR }
+					// e92ddxxx: STMPW [SP], { , LR, PC }
+					if (((op & 0xfffff000) == 0xe92d4000)
+					 || ((op & 0xfffff000) == 0xe92dd000))
 					{
 						status = STAT_HAS_STACKFRAME;
 						// R4-R12
@@ -397,8 +399,10 @@ int main(int argc, const char *argv[])
 					break;
 
 				case STAT_HAS_STACKFRAME:
-					// LDMUW [SP], { R4-R6, PC }
-					if ((op & 0xfffffff0) == (0xe8bd8000 | frameregs))
+					// e8bd8xxx: LDMUW [SP], { ..., PC }
+					// e89daxxx: LDMU  [SP], { ..., SP, PC }
+					if (((op & 0xfffffff0) == (0xe8bd8000 | frameregs))
+					 || ((op & 0xfffffff0) == (0xe89da000 | frameregs)))
 					{
 						if (end <= i)
 						{
