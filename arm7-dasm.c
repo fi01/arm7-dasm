@@ -215,6 +215,12 @@ static void read_kallsyms(const char *filename)
 {
 	FILE *fp = fopen(filename, "rt");
 
+	if (!fp)
+	{
+		fprintf(stderr, "cannot open file: %s\n", filename);
+		return;
+	}
+
 	while (!feof(fp))
 	{
 		char buf[1024];
