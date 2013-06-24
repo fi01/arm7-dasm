@@ -311,7 +311,7 @@ static UINT32 start;
 static UINT32 end;
 static int status;
 
-static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs)
+static void check_stackframe(UINT32 pc, UINT32 op, UINT32 *frameregs)
 {
 	switch (status)
 	{
@@ -337,7 +337,7 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs
 #endif /* DEBUG */
 		}
 
-		if (pos >= 32)
+		if (pc - start >= 32)
 		{
 			status = STAT_PROCESS_WHOLE;
 			fprintf(stderr, "Disassemble whole image.\n");
@@ -351,7 +351,11 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs
 		if (((op & 0xfffffff0) == (0xe8bd8000 | *frameregs))
 		 || ((op & 0xfffffff0) == (0xe89da000 | *frameregs)))
 		{
-			if (end <= pos)
+#if 0
+			if (end <= pc)
+#else
+			if (1)
+#endif
 			{
 				status = STAT_END_FUNCTION;
 #ifdef DEBUG
@@ -359,25 +363,7 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs
 			}
 			else
 			{
-				fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, *frameregs);
-#endif /* DEBUG */
-			}
-
-			return;
-		}
-
-		// LDMUW [SP], { R4-R6, LR }
-		if ((op & 0xfffffff0) == (0xe8bd4000 | *frameregs))
-		{
-			if (end <= pos)
-			{
-				status = STAT_END_STACKFRAME;
-#ifdef DEBUG
-				fprintf(stderr, "found: LDMUW (LR): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
-			}
-			else
-			{
-				fprintf(stderr, "skip: LDMUW (LR): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, *frameregs);
+				fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, end, *frameregs);
 #endif /* DEBUG */
 			}
 
@@ -386,39 +372,40 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs
 	}
 }
 
-static int check_branch(UINT32 op, UINT32 pos)
+static int check_branch(UINT32 pc, UINT32 op)
 {
 	// Bxx $xxxxxxxx
 	if ((op & 0x0f000000) == 0x0a000000)
 	{
-		int b = pos + (op & 0x00ffffff) * 4 + 8;
+		int b = pc + (op & 0x00ffffff) * 4 + 8;
 
 		if (op & 0x00800000)
 			b += 0xff000000 * 4; /* sign-extend */
 
 		// B $xxxxxxxx
 		if ((op & 0xff000000) == 0xea000000)
-			if (((b - pos) & 0x80000000) && pos >= end)
+			if (b < pc && pc > end)
 				return 1;
 
-		if (b <= image_size)
-			if (status == STAT_END_STACKFRAME)
-			{
-				if (end < b)
-					return 1;
-			}
+		if (b > image_base + image_size)
+			return 0;
 
-			else if (!have_symbol(start + b))
-			{
-				if (end < b)
-					end = b;
-			}
+		if (status == STAT_END_STACKFRAME)
+		{
+			if (b > end)
+				return 1;
+		}
+		else if (!have_symbol(b))
+		{
+			if (end < b)
+				end = b;
+		}
 #if 0
-			else if (status != STAT_HAS_STACKFRAME)
-			{
-				fprintf(stderr, "end due to branch to symbol\n");
-				return 1;
-			}
+		else if (status != STAT_HAS_STACKFRAME)
+		{
+			fprintf(stderr, "end due to branch to symbol\n");
+			return 1;
+		}
 #endif
 	}
 
@@ -439,7 +426,7 @@ static void write_result(UINT32 pc, const char *asm7)
 		printf("%08x: %*s; from %08x\n", pc, 44, "", ref->from);
 
 		for (ref = ref->next; ref; ref = ref->next)
-			printf("%08x: %*s;\t\t\t%08x\n", pc, 44, "", ref->from);
+			printf("%08x: %*s;      %08x\n", pc, 44, "", ref->from);
 	}
 
 	if (have_symbol(pc))
@@ -453,12 +440,12 @@ static void write_result(UINT32 pc, const char *asm7)
 	for (i = 0; i < 4; i++)
 		printf("%02x ", image_data[off + 3 - i]);
 
-	printf("\t\t%s\n", asm7);
+	printf("    %s\n", asm7);
 }
 
 static int do_disassemble(void)
 {
-	UINT32 pos;
+	UINT32 pc;
 
 	rnv_requested = 0;
 	end = 0;
@@ -470,18 +457,16 @@ static int do_disassemble(void)
 		UINT32 frameregs = 0;
 
 		if (dasm_process_pass == 1)
-			printf("Disassemble 0x%08x - 0x%08x\n", start, start + end);
+			printf("Disassemble 0x%08x - 0x%08x\n", start, end);
 
-		for (pos = 0; start + pos < image_base + image_size; pos += 4)
+		for (pc = start; pc < image_base + image_size; pc += 4)
 		{
-			UINT32 pc;
 			UINT32 off;
 			UINT32 op;
 			char buf[1024];
 			int i;
 			int n;
 
-			pc = start + pos;
 			off = pc - image_base;
 
 			for (i = 0; i < 4; i++)
@@ -492,10 +477,10 @@ static int do_disassemble(void)
 
 			if (!dasm_process_pass)
 			{
-				if (end < pos)
-					end = pos;
+				if (end < pc)
+					end = pc;
 
-				check_stackframe(pc, op, pos, &frameregs);
+				check_stackframe(pc, op, &frameregs);
 			}
 
 			n = arm7arm(buf, pc, &image_data[off]);
@@ -504,7 +489,7 @@ static int do_disassemble(void)
 			{
 				write_result(pc, buf);
 
-				if (pos >= end)
+				if (pc >= end)
 					break;
 
 				continue;
@@ -514,25 +499,30 @@ static int do_disassemble(void)
 				continue;
 
 			if (status == STAT_END_FUNCTION)
-				if (pos >= end)
+				if (pc >= end)
 					break;
 
-			if (check_branch(op, pos))
+			if (check_branch(pc, op))
+			{
+#ifdef DEBUG
+				fprintf(stderr, "end by branch\n");
 				break;
+#endif /* DEBUG */
+			}
 
 			if (status != STAT_HAS_STACKFRAME && status != STAT_UNKNOWN)
-				if (rnv_requested != 0 && start + pos >= rnv_requested)
+				if (rnv_requested != 0 && pc >= rnv_requested)
 				{
-					fprintf(stderr, "end at 0x%08x by rnv requested\n", start + pos);
+					fprintf(stderr, "end at 0x%08x by rnv requested\n", pc);
 
-					end = pos - 4;
+					end = pc - 4;
 					break;
 				}
 		}
 	}
 
 #ifdef DEBUG
-	fprintf(stderr, "done at 0x%08x (end = 0x%08x, rnv requested: 0x%08x)\n", start + pos, start + end, rnv_requested);
+	fprintf(stderr, "done at 0x%08x (end = 0x%08x, rnv requested: 0x%08x)\n", pc, end, rnv_requested);
 #endif /* DEBUG */
 }
 
