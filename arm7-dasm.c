@@ -157,6 +157,14 @@ void check_rnv(UINT32 addr)
 	if (rnv_requested != 0 && rnv_requested < addr)
 		return;
 
+	if (addr & 3)
+	{
+#ifdef DEBUG
+		fprintf(stderr, "skip: check_rnv(0x%08x)\n", addr);
+#endif /* DEBUG */
+		return;
+	}
+
 #ifdef DEBUG
 	if (!dasm_process_pass)
 		fprintf(stderr, "check_rnv(0x%08x)\n", addr);
