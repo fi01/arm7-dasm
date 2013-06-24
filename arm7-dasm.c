@@ -264,22 +264,11 @@ enum
 	STAT_UNKNOWN
 };
 
-int main(int argc, const char *argv[])
+int load_image(const char *name)
 {
 	FILE *fp;
-	UINT32 start;
-	UINT32 end;
-	int status;
-	UINT32 frameregs;
-	UINT32 i;
 
-	if (argc != 4 && argc != 5)
-		return 1;
-
-	if (sscanf(argv[2], "%x", &image_base) != 1)
-		return 1;
-
-	fp = fopen(argv[1], "rb");
+	fp = fopen(name, "rb");
 	if (!fp)
 		return 1;
 
@@ -303,15 +292,6 @@ int main(int argc, const char *argv[])
 
 	memset(image_data, 0, image_size);
 
-	coderef = malloc(image_size / 4 * sizeof *coderef);
-	if (!coderef)
-	{
-		fprintf(stderr, "out of memory for coderef\n");
-		goto error_exit;
-	}
-
-	memset(coderef, 0, image_size / 4 * sizeof *coderef);
-
 	if (fread(image_data, image_size, 1, fp) != 1)
 	{
 		fprintf(stderr, "file read error\n");
@@ -319,6 +299,262 @@ int main(int argc, const char *argv[])
 	}
 
 	fclose(fp);
+
+	return 0;
+
+error_exit:
+	fclose(fp);
+	return 1;
+}
+
+static UINT32 start;
+static UINT32 end;
+static int status;
+
+static void check_stackframe(UINT32 pc, UINT32 op, UINT32 pos, UINT32 *frameregs)
+{
+	switch (status)
+	{
+	case STAT_START:
+		// BX LR
+		if (op == 0xe12fff1e)
+		{
+			status = STAT_END_FUNCTION;
+			return;
+		}
+
+		// e92d4xxx: STMPW [SP], { ..., LR }
+		// e92ddxxx: STMPW [SP], { , LR, PC }
+		if (((op & 0xfffff000) == 0xe92d4000)
+		 || ((op & 0xfffff000) == 0xe92dd000))
+		{
+			status = STAT_HAS_STACKFRAME;
+			// R4-R12
+			*frameregs = op & 0x00000ff0;
+
+#ifdef DEBUG
+			fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
+#endif /* DEBUG */
+		}
+
+		if (pos >= 32)
+		{
+			status = STAT_PROCESS_WHOLE;
+			fprintf(stderr, "Disassemble whole image.\n");
+		}
+
+		return;
+
+	case STAT_HAS_STACKFRAME:
+		// e8bd8xxx: LDMUW [SP], { ..., PC }
+		// e89daxxx: LDMU  [SP], { ..., SP, PC }
+		if (((op & 0xfffffff0) == (0xe8bd8000 | *frameregs))
+		 || ((op & 0xfffffff0) == (0xe89da000 | *frameregs)))
+		{
+			if (end <= pos)
+			{
+				status = STAT_END_FUNCTION;
+#ifdef DEBUG
+				fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
+			}
+			else
+			{
+				fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, *frameregs);
+#endif /* DEBUG */
+			}
+
+			return;
+		}
+
+		// LDMUW [SP], { R4-R6, LR }
+		if ((op & 0xfffffff0) == (0xe8bd4000 | *frameregs))
+		{
+			if (end <= pos)
+			{
+				status = STAT_END_STACKFRAME;
+#ifdef DEBUG
+				fprintf(stderr, "found: LDMUW (LR): pc = 0x%08x, frameregs = 0x%08x\n", pc, *frameregs);
+			}
+			else
+			{
+				fprintf(stderr, "skip: LDMUW (LR): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, *frameregs);
+#endif /* DEBUG */
+			}
+
+			return;
+		}
+	}
+}
+
+static int check_branch(UINT32 op, UINT32 pos)
+{
+	// Bxx $xxxxxxxx
+	if ((op & 0x0f000000) == 0x0a000000)
+	{
+		int b = pos + (op & 0x00ffffff) * 4 + 8;
+
+		if (op & 0x00800000)
+			b += 0xff000000 * 4; /* sign-extend */
+
+		// B $xxxxxxxx
+		if ((op & 0xff000000) == 0xea000000)
+			if (((b - pos) & 0x80000000) && pos >= end)
+				return 1;
+
+		if (b <= image_size)
+			if (status == STAT_END_STACKFRAME)
+			{
+				if (end < b)
+					return 1;
+			}
+
+			else if (!have_symbol(start + b))
+			{
+				if (end < b)
+					end = b;
+			}
+#if 0
+			else if (status != STAT_HAS_STACKFRAME)
+			{
+				fprintf(stderr, "end due to branch to symbol\n");
+				return 1;
+			}
+#endif
+	}
+
+	return 0;
+}
+
+static void write_result(UINT32 pc, const char *asm7)
+{
+	coderef_t *ref;
+	UINT32 off;
+	int i;
+
+	off = pc - image_base;
+	ref = coderef[off / 4];
+
+	if (ref)
+	{
+		printf("%08x: %*s; from %08x\n", pc, 44, "", ref->from);
+
+		for (ref = ref->next; ref; ref = ref->next)
+			printf("%08x: %*s;\t\t\t%08x\n", pc, 44, "", ref->from);
+	}
+
+	if (have_symbol(pc))
+	{
+		i = search_symbol(pc);
+		printf("%08x: %12s<%s>\n", pc, "", symbols[i].name);
+	}
+
+	printf("%08x: ", pc);
+
+	for (i = 0; i < 4; i++)
+		printf("%02x ", image_data[off + 3 - i]);
+
+	printf("\t\t%s\n", asm7);
+}
+
+static int do_disassemble(void)
+{
+	UINT32 pos;
+
+	rnv_requested = 0;
+	end = 0;
+
+	status = STAT_START;
+
+	for (dasm_process_pass = 0; dasm_process_pass < 2; dasm_process_pass++)
+	{
+		UINT32 frameregs = 0;
+
+		if (dasm_process_pass == 1)
+			printf("Disassemble 0x%08x - 0x%08x\n", start, start + end);
+
+		for (pos = 0; start + pos < image_base + image_size; pos += 4)
+		{
+			UINT32 pc;
+			UINT32 off;
+			UINT32 op;
+			char buf[1024];
+			int i;
+			int n;
+
+			pc = start + pos;
+			off = pc - image_base;
+
+			for (i = 0; i < 4; i++)
+			{
+				op <<= 8;
+				op += image_data[off + 3 - i];
+			}
+
+			if (!dasm_process_pass)
+			{
+				if (end < pos)
+					end = pos;
+
+				check_stackframe(pc, op, pos, &frameregs);
+			}
+
+			n = arm7arm(buf, pc, &image_data[off]);
+
+			if (dasm_process_pass)
+			{
+				write_result(pc, buf);
+
+				if (pos >= end)
+					break;
+
+				continue;
+			}
+
+			if (status == STAT_PROCESS_WHOLE)
+				continue;
+
+			if (status == STAT_END_FUNCTION)
+				if (pos >= end)
+					break;
+
+			if (check_branch(op, pos))
+				break;
+
+			if (status != STAT_HAS_STACKFRAME && status != STAT_UNKNOWN)
+				if (rnv_requested != 0 && start + pos >= rnv_requested)
+				{
+					fprintf(stderr, "end at 0x%08x by rnv requested\n", start + pos);
+
+					end = pos - 4;
+					break;
+				}
+		}
+	}
+
+#ifdef DEBUG
+	fprintf(stderr, "done at 0x%08x (end = 0x%08x, rnv requested: 0x%08x)\n", start + pos, start + end, rnv_requested);
+#endif /* DEBUG */
+}
+
+int main(int argc, const char *argv[])
+{
+	if (argc != 4 && argc != 5)
+		return 1;
+
+	if (sscanf(argv[2], "%x", &image_base) != 1)
+		return 1;
+
+	if (load_image(argv[1]))
+		return 1;
+
+	coderef = malloc(image_size / 4 * sizeof *coderef);
+	if (!coderef)
+	{
+		fprintf(stderr, "out of memory for coderef\n");
+		return 1;
+	}
+
+	memset(coderef, 0, image_size / 4 * sizeof *coderef);
 
 	if (argv[4])
 		read_kallsyms(argv[4]);
@@ -331,226 +567,9 @@ int main(int argc, const char *argv[])
 	if (start < image_base || start >= image_base + image_size)
 		return 1;
 
-	rnv_requested = 0;
-	end = 0;
-
-	status = STAT_START;
-
-	for (dasm_process_pass = 0; dasm_process_pass < 2; dasm_process_pass++)
-	{
-		frameregs = 0;
-		i = 0;
-
-		if (dasm_process_pass == 1)
-			printf("Disassemble 0x%08x - 0x%08x\n", start, start + end);
-
-		while (1)
-		{
-			UINT32 pc;
-			UINT32 off;
-			UINT32 op;
-			coderef_t *ref;
-			char buf[1024];
-			int j;
-			int n;
-
-			pc = start + i;
-
-			off = pc - image_base;
-
-			if (off >= image_size)
-				break;
-
-			for (j = 0; j < 4; j++)
-			{
-				op <<= 8;
-				op += image_data[off + 3 - j];
-			}
-
-			if (!dasm_process_pass)
-			{
-				if (end < i)
-					end = i;
-
-				switch (status)
-				{
-				case STAT_START:
-					// BX LR
-					if (op == 0xe12fff1e)
-					{
-						status = STAT_END_FUNCTION;
-						break;
-					}
-
-					// e92d4xxx: STMPW [SP], { ..., LR }
-					// e92ddxxx: STMPW [SP], { , LR, PC }
-					if (((op & 0xfffff000) == 0xe92d4000)
-					 || ((op & 0xfffff000) == 0xe92dd000))
-					{
-						status = STAT_HAS_STACKFRAME;
-						// R4-R12
-						frameregs = op & 0x00000ff0;
-
-#ifdef DEBUG
-						fprintf(stderr, "found: STMPW: pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
-#endif /* DEBUG */
-					}
-
-					if (i >= 32)
-					{
-						status = STAT_PROCESS_WHOLE;
-						fprintf(stderr, "Disassemble whole image.\n");
-
-						break;
-					}
-
-					break;
-
-				case STAT_HAS_STACKFRAME:
-					// e8bd8xxx: LDMUW [SP], { ..., PC }
-					// e89daxxx: LDMU  [SP], { ..., SP, PC }
-					if (((op & 0xfffffff0) == (0xe8bd8000 | frameregs))
-					 || ((op & 0xfffffff0) == (0xe89da000 | frameregs)))
-					{
-						if (end <= i)
-						{
-							status = STAT_END_FUNCTION;
-#ifdef DEBUG
-							fprintf(stderr, "found: LDMUW (PC): pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
-						}
-						else
-						{
-							fprintf(stderr, "skip: LDMUW (PC): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, frameregs);
-#endif /* DEBUG */
-						}
-
-						break;
-					}
-
-					// LDMUW [SP], { R4-R6, LR }
-					if ((op & 0xfffffff0) == (0xe8bd4000 | frameregs))
-					{
-						if (end <= i)
-						{
-							status = STAT_END_STACKFRAME;
-#ifdef DEBUG
-							fprintf(stderr, "found: LDMUW (LR): pc = 0x%08x, frameregs = 0x%08x\n", pc, frameregs);
-						}
-						else
-						{
-							fprintf(stderr, "skip: LDMUW (LR): pc = 0x%08x, end = 0x%08x, frameregs = 0x%08x\n", pc, start + end, frameregs);
-#endif /* DEBUG */
-						}
-
-						break;
-					}
-
-					break;
-				}
-			}
-
-			if (dasm_process_pass)
-			{
-				ref = coderef[(pc - image_base) / 4];
-				if (ref)
-				{
-					printf("%08x: %*s; from %08x\n", pc, 44, "", ref->from);
-
-					for (ref = ref->next; ref; ref = ref->next)
-						printf("%08x: %*s;			%08x\n", pc, 44, "", ref->from);
-				}
-
-				if (have_symbol(pc))
-				{
-						j = search_symbol(pc);
-						printf("%08x: %12s<%s>\n", pc, "", symbols[j].name);
-				}
-
-				printf("%08x: ", pc);
-				
-				for (j = 0; j < 4; j++)
-					printf("%02x ", image_data[off + 3 - j]);
-			}
-
-			n = arm7arm(buf, pc, &image_data[off]);
-
-			if (dasm_process_pass)
-			{
-				printf("		%s\n", buf);
-
-				if (i >= end)
-					break;
-
-				i += 4;
-				continue;
-			}
-
-			if (status == STAT_PROCESS_WHOLE)
-			{
-				i += 4;
-				continue;
-			}
-
-			if (status == STAT_END_FUNCTION)
-				if (i >= end)
-					break;
-
-			// Bxx $xxxxxxxx
-			if ((op & 0x0f000000) == 0x0a000000)
-			{
-				int b = i + (op & 0x00ffffff) * 4 + 8;
-
-				if (op & 0x00800000)
-					b += 0xff000000 * 4; /* sign-extend */
-
-				// B $xxxxxxxx
-				if ((op & 0xff000000) == 0xea000000)
-					if (((b - i) & 0x80000000) && i >= end)
-						break;
-
-				if (b <= image_size)
-					if (status == STAT_END_STACKFRAME)
-					{
-						if (end < b)
-							break;
-					}
-
-					else if (!have_symbol(start + b))
-					{
-						if (end < b)
-							end = b;
-					}
-#if 0
-					else if (status != STAT_HAS_STACKFRAME)
-					{
-						fprintf(stderr, "end due to branch to symbol\n");
-						break;
-					}
-#endif
-			}
-
-			if (status != STAT_HAS_STACKFRAME && status != STAT_UNKNOWN)
-				if (rnv_requested != 0 && start + i >= rnv_requested)
-				{
-					fprintf(stderr, "end at 0x%08x by rnv requested\n", start + i);
-
-					end = i - 4;
-					break;
-				}
-
-			i += 4;
-		}
-	}
-
-#ifdef DEBUG
-	fprintf(stderr, "done at 0x%08x (end = 0x%08x, rnv requested: 0x%08x)\n", start + i, start + end, rnv_requested);
-#endif /* DEBUG */
+	do_disassemble();
 
 	return 0;
-
-error_exit:
-	fclose(fp);
-	return 1;
 }
 
 /*
