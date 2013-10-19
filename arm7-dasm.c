@@ -249,7 +249,7 @@ static void read_kallsyms(const char *filename)
 
 		s = strtok_r(NULL, " \r\n", &p);
 		if (s == NULL)
-			break;
+			continue;
 
 		strncpy(name, s, KSYM_NAME_LEN - 1);
 		name[KSYM_NAME_LEN - 1] = '\0';
