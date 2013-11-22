@@ -331,7 +331,9 @@ static void check_stackframe(UINT32 pc, UINT32 op, UINT32 *frameregs)
 	{
 	case STAT_START:
 		// BX LR
-		if (op == 0xe12fff1e)
+		// MOV PC, LR
+		if (op == 0xe12fff1e
+		 || op == 0xe1a0f00e)
 		{
 			status = STAT_END_FUNCTION;
 			return;
