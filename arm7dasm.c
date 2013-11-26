@@ -249,9 +249,15 @@ static UINT32 arm7_disasm( char *pBuf, UINT32 pc, UINT32 opcode )
 	pConditionCode= pConditionCodeTable[opcode>>28];
 	pBuf0 = pBuf;
 
-	if( (opcode&0x0ffffff0)==0x012fff10 ) { //bits 27-4 == 000100101111111111110001
-		/* Branch and Exchange (BX) */
-		pBuf += sprintf( pBuf, "B");
+	if( (opcode&0x0fffffd0)==0x012fff10 ) { //bits 27-4 == 0001001011111111111100x1
+		/* Branch and Exchange (BX,BLX) */
+		if (opcode & 0x00000020) {
+			pBuf += sprintf( pBuf, "BL");
+			dasmflags = DASMFLAG_STEP_OUT;
+		}
+		else {
+			pBuf += sprintf( pBuf, "B");
+		}
 		pBuf += sprintf( pBuf, "%sX", pConditionCode );
 		pBuf = WritePadding( pBuf, pBuf0 );
 		pBuf += sprintf( pBuf, "%s",get_reg_name((opcode&0xf)));
